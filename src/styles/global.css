@@ -1,0 +1,104 @@
+:root {
+  --navy: #0f2a4b;
+  --ink: #102e50;
+  --muted: #647d98;
+  --blue: #005a91;
+  --gold: #d0a12d;
+  --gold-border: #d2a72c;
+  --bg: #f5f8fc;
+  --border: #d8e5f1;
+  --soft: #eaf4fa;
+  --cyan: #d7ebf3;
+  --cream: #f5e5bc;
+  --danger: #b3261e;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Inter", system-ui, sans-serif;
+  line-height: 1.45;
+}
+
+button { font: inherit; cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+
+.page { min-height: 100vh; display: flex; flex-direction: column; }
+.container { padding: 48px; display: flex; flex-direction: column; gap: 28px; max-width: 1440px; width: 100%; margin: 0 auto; }
+
+/* Navigation */
+.nav { background: var(--navy); height: 88px; display: flex; align-items: center; justify-content: space-between; padding: 0 40px; }
+.brand { display: flex; align-items: center; gap: 9px; }
+.brand-symbol { background: var(--gold); width: 31px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+.brand-symbol img { width: 23px; height: 23px; }
+.brand-name { color: #fff; font-weight: 700; font-size: 17px; line-height: 1; }
+.brand-sub { color: var(--cyan); font-size: 10px; letter-spacing: 1.6px; margin-top: 1px; }
+.nav-links { display: flex; align-items: center; gap: 28px; font-size: 13px; color: #fff; }
+.nav-links .dim { color: var(--cyan); }
+.pill { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.1); border-radius: 100px; padding: 5px 10px; font-size: 11px; font-weight: 600; color: var(--cream); }
+
+/* Cards & buttons */
+.card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+.btn { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 16px; font-size: 14px; font-weight: 600; color: var(--ink); }
+.btn:hover { border-color: var(--blue); }
+.btn-primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+.eyebrow { color: var(--blue); font-size: 12px; font-weight: 600; margin: 0; }
+.h1 { font-size: 44px; font-weight: 600; margin: 0; color: var(--ink); line-height: 1.45; }
+.h2 { font-size: 24px; font-weight: 600; margin: 0; }
+.h3 { font-size: 20px; font-weight: 600; margin: 0; }
+.lead { color: var(--muted); font-size: 17px; margin: 0; }
+.text-muted { color: var(--muted); font-size: 14px; margin: 0; }
+.small { font-size: 12px; color: var(--muted); margin: 0; }
+
+/* Landing */
+.hero { display: flex; gap: 36px; align-items: flex-start; flex-wrap: wrap; }
+.hero-left { flex: 1 1 480px; max-width: 780px; display: flex; flex-direction: column; gap: 20px; }
+.hero-right { flex: 1 1 300px; min-width: 0; }
+@media (max-width: 900px) {
+  .container { padding: 24px; }
+  .nav { padding: 0 20px; }
+  .nav-links { gap: 14px; }
+  .nav-links .dim, .nav-links > a:first-child { display: none; }
+  .h1 { font-size: 32px; }
+  .steps, .split { flex-direction: column; }
+}
+.row { display: flex; gap: 12px; flex-wrap: wrap; }
+.steps { display: flex; gap: 14px; }
+.step { flex: 1; min-width: 0; background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 24px 18px; display: flex; flex-direction: column; gap: 16px; }
+.step .num { color: var(--blue); font-size: 20px; font-weight: 600; }
+.step .ttl { font-size: 16px; font-weight: 600; }
+.step .dsc { color: var(--muted); font-size: 13px; }
+.split { display: flex; gap: 22px; }
+.split > .card { flex: 1; }
+.welcome { background: var(--soft); border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+.welcome b { font-size: 18px; font-weight: 600; }
+.tag { color: var(--blue); font-size: 11px; font-weight: 600; margin: 0; }
+
+/* Floating chat */
+.fab-wrap { position: fixed; right: 32px; bottom: 32px; display: flex; align-items: center; gap: 16px; z-index: 50; }
+.fab-label { font-size: 13px; font-weight: 600; }
+.fab { width: 64px; height: 64px; border-radius: 32px; background: var(--blue); border: 2px solid var(--gold-border); box-shadow: 0 6px 18px rgba(10,31,56,.22); display: flex; align-items: center; justify-content: center; padding: 0; }
+.fab img { width: 30px; height: 30px; }
+.chat { position: fixed; right: 32px; bottom: 32px; width: 380px; height: 560px; max-height: calc(100vh - 64px); background: #fff; border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 12px 32px rgba(10,31,56,.25); display: flex; flex-direction: column; overflow: hidden; z-index: 60; }
+.chat-head { background: var(--navy); color: #fff; padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; }
+.chat-head b { font-size: 15px; }
+.chat-head small { display: block; color: var(--cyan); font-size: 11px; }
+.chat-close { background: none; border: 0; color: #fff; font-size: 20px; }
+.chat-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; background: var(--bg); }
+.bubble { max-width: 85%; padding: 10px 14px; border-radius: 12px; font-size: 14px; white-space: pre-wrap; }
+.bubble.bot { background: var(--soft); align-self: flex-start; }
+.bubble.me { background: var(--blue); color: #fff; align-self: flex-end; }
+.chat-form { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
+.chat-form input { flex: 1; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font: inherit; font-size: 14px; }
+.chat-form button { background: var(--blue); color: #fff; border: 0; border-radius: 8px; padding: 0 16px; font-weight: 600; }
+.chat-form button:disabled { opacity: .5; }
+
+/* Auth forms */
+.auth { max-width: 440px; margin: 48px auto; width: 100%; }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
+.field input { border: 1px solid var(--border); border-radius: 8px; padding: 12px; font: inherit; font-size: 14px; font-weight: 400; }
+.field input:focus { outline: 2px solid var(--blue); outline-offset: -1px; }
+.error { color: var(--danger); font-size: 13px; margin: 0; }

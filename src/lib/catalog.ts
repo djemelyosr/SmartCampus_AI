@@ -17,6 +17,8 @@ export interface Formation {
   tagline: string;
   keywords: string;
   image: string;
+  admission: string;
+  duration: number | null;
 }
 
 const IMAGES = [img1, img2, img3, img4, img5];
@@ -31,6 +33,8 @@ const toFormation = (p: Program, i: number): Formation => ({
   tagline: p.description,
   keywords: p.career_outcomes.join(" · "),
   image: IMAGES[i % IMAGES.length]!,
+  admission: p.admission_requirements,
+  duration: p.duration_years,
 });
 
 /** Catalogue read from PostgreSQL through `GET /api/programs`. Filled in place by `loadCatalog()` before the app renders. */
@@ -39,4 +43,14 @@ export const FORMATIONS: Formation[] = [];
 export async function loadCatalog(): Promise<void> {
   const programs = await api.programs();
   FORMATIONS.splice(0, FORMATIONS.length, ...programs.map(toFormation));
+}
+
+/** Legacy demo keys (“licence-info”, “prepa”, “gestion”) → id of the matching formation read from the database. */
+export function resolveFormationId(key: string): string {
+  const match: Record<string, (f: Formation) => boolean> = {
+    "licence-info": (f) => f.institution === "IIT" && f.level === "Licence",
+    prepa: (f) => f.institution === "IIT" && f.level === "Prépa",
+    gestion: (f) => f.institution === "ISB",
+  };
+  return FORMATIONS.find((f) => f.id === key)?.id ?? (match[key] ? FORMATIONS.find(match[key])?.id : undefined) ?? key;
 }

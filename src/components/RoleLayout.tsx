@@ -19,6 +19,7 @@ export const DOSSIERS_TAB: [string, string] = ["/equipe/examen", "DOSSIERS CANDI
 export const INTERVIEW_TAB: [string, string] = ["/equipe/planning", "ENTRETIENS"];
 export const TEAM_TABS: [string, string][] = [DOSSIERS_TAB, INTERVIEW_TAB];
 export const STATS_TAB: [string, string] = ["/equipe/statistiques", "STATISTIQUES"];
+export const CATALOGUE_TAB: [string, string] = ["/equipe/catalogue", "CATALOGUE"];
 export const DIRECTION_TABS: [string, string][] = [["/direction", "PILOTAGE"]];
 export const ADMIN_TABS: [string, string][] = [["/admin", "ADMINISTRATION"]];
 
@@ -27,7 +28,7 @@ export function tabsFor(role: string): [string, string][] {
   if (role === "direction") return DIRECTION_TABS;
   if (role === "admin") return ADMIN_TABS;
   if (role === "interviewer") return TEAM_TABS;
-  return [DOSSIERS_TAB, STATS_TAB]; // iit_head, isb_head
+  return [DOSSIERS_TAB, CATALOGUE_TAB, STATS_TAB]; // iit_head, isb_head
 }
 
 /** Header shared by team screens. `tabs` differ per area (équipe, direction, administration). */

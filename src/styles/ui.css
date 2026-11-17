@@ -367,3 +367,13 @@ html[dir="rtl"] .cnav .who .lbl { align-items: flex-start; }
 .cw-listen:hover { border-color: var(--blue2); color: var(--blue2); }
 .cw-listen.on { background: var(--blue2); border-color: var(--blue2); color: #fff; }
 .cw-listen:focus-visible { outline: 2px solid #d0a14a; outline-offset: 2px; }
+
+/* Fiche formation : spécialités, matières, conditions */
+.chip2.btn { cursor: pointer; font-family: inherit; border: 1px solid transparent; }
+.chip2.btn.line { background: #fff; border-color: var(--line); }
+.cur { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); padding-top: 14px; }
+.subj-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+.subj { display: grid; grid-template-columns: minmax(180px, 1fr) 56px 64px 56px 64px; gap: 8px; align-items: center; padding: 9px 12px; font-size: 13.5px; color: var(--ink2); border-top: 1px solid var(--line); min-width: 440px; }
+.subj:first-child { border-top: 0; }
+.subj.head { background: #f5f8fc; font-size: 12px; font-weight: 600; color: var(--muted3); }
+.subj > span:not(:first-child) { text-align: center; }

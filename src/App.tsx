@@ -5,6 +5,7 @@ import Examen from "./pages/equipe/Examen";
 import Planning from "./pages/equipe/Planning";
 import Entretien from "./pages/equipe/Entretien";
 import Statistiques from "./pages/equipe/Statistiques";
+import Catalogue from "./pages/equipe/Catalogue";
 import Direction from "./pages/Direction";
 import Rag from "./pages/admin/Rag";
 import Users from "./pages/admin/Users";
@@ -80,6 +81,7 @@ export default function App() {
             <Route index element={<TeamHome />} />
             <Route path="examen" element={<Examen />} />
             <Route path="statistiques" element={<RequireAuth roles={["iit_head", "isb_head"]}><Statistiques /></RequireAuth>} />
+            <Route path="catalogue" element={<RequireAuth roles={["iit_head", "isb_head"]}><Catalogue /></RequireAuth>} />
             <Route path="planning" element={<RequireAuth roles={["interviewer"]}><Planning /></RequireAuth>} />
             <Route path="entretien" element={<RequireAuth roles={["interviewer"]}><Entretien /></RequireAuth>} />
           </Route>

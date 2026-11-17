@@ -21,6 +21,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     } catch { /* keep statusText */ }
     throw new ApiError(res.status, detail);
   }
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
@@ -42,8 +43,50 @@ export interface Message { id: number; role: string; content: string; modality: 
 export interface Conversation { id: number; language: string | null; created_at: string; messages: Message[] }
 export interface Program {
   id: number; institution: "IIT" | "ISB"; level: string; name: string; description: string;
-  admission_requirements: string; duration_years: number | null; career_outcomes: string[];
+  admission_requirements: string; duration_years: number | null; career_outcomes: string[]; active?: boolean;
 }
+
+/** Academic catalogue managed by the academic heads (GET/POST/PATCH/DELETE on each resource). */
+export type CatalogResource = "programs" | "specialties" | "curricula" | "subjects" | "admission-conditions" | "fees" | "payment-terms";
+export interface Specialty { id: number; program_id: number; name: string; description: string; active: boolean }
+export interface Curriculum { id: number; program_id: number; specialty_id: number | null; name: string; academic_year: string | null; description: string; active: boolean }
+export interface Subject {
+  id: number; curriculum_id: number; code: string | null; name: string; semester: number | null; credits: number | null;
+  coefficient: number | null; hours: number | null; description: string; active: boolean;
+}
+/** Official information (fees, payment terms, admission conditions): publication status + validity period.
+ *  Candidates and the AI agent only get items that are published AND valid today (`official`). */
+export type PublicationStatus = "draft" | "published" | "archived";
+export type OfficialAction = "publish" | "archive" | "draft";
+export interface Official {
+  status: PublicationStatus; valid_from: string | null; valid_until: string | null; academic_year: string | null;
+  published_at: string | null; official: boolean;
+}
+export interface AdmissionCondition extends Official {
+  id: number; program_id: number; specialty_id: number | null; kind: string; title: string; description: string;
+  required: boolean; threshold: number | null; active: boolean;
+}
+export type FeePeriod = "annual" | "semester" | "one_time";
+export interface Fee extends Official {
+  id: number; program_id: number; specialty_id: number | null; label: string; amount: number; currency: string;
+  period: FeePeriod; description: string; active: boolean;
+}
+export type PaymentMethod = "bank_transfer" | "cash" | "cheque" | "card" | "online" | "other";
+export interface PaymentTerm extends Official {
+  id: number; program_id: number; specialty_id: number | null; fee_id: number | null; method: PaymentMethod; title: string;
+  description: string; installments: number; down_payment_percent: number | null; due_date: string | null; active: boolean;
+}
+export type CatalogRow = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+export interface OfficialInfo {
+  program_id: number; program_name: string; institution: "IIT" | "ISB"; as_of: string;
+  fees: Fee[]; payment_terms: PaymentTerm[]; admission_conditions: AdmissionCondition[];
+  complete: { fees: boolean; payment_terms: boolean; admission_conditions: boolean };
+}
+export interface ProgramCatalog {
+  specialties: Specialty[]; curricula: Curriculum[]; subjects: Subject[];
+  conditions: AdmissionCondition[]; fees: Fee[]; paymentTerms: PaymentTerm[]; asOf: string; complete: OfficialInfo["complete"];
+}
+export type CatalogQuery = Record<string, string | number | boolean | null | undefined>;
 
 export interface QcmQuestion { section: string; text: string; code?: string[]; options: string[] }
 export interface QcmView { id: number; questions: QcmQuestion[]; answers: Record<number, number>; finished: boolean }
@@ -119,6 +162,33 @@ export const api = {
     request<AdminUser>("/admin/users", json("POST", body)),
   adminUpdateUser: (id: number, body: Partial<{ full_name: string; role: RoleName; is_active: boolean; password: string }>) =>
     request<AdminUser>(`/admin/users/${id}`, json("PATCH", body)),
+  /** Academic heads (own institution) and administrator: formations, specialties, curricula, subjects, admission conditions. */
+  catalogList: (resource: CatalogResource, query: CatalogQuery = {}) => {
+    const qs = new URLSearchParams({ include_inactive: "true", limit: "200" });
+    for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
+    return request<CatalogRow[]>(`/${resource}?${qs}`);
+  },
+  /** Public read of one formation: its catalogue plus the OFFICIAL information only (fees, payment terms, admission
+   *  conditions that are published and valid today, `GET /programs/{id}/official-info`) — no team account needed. */
+  programCatalog: async (programId: number): Promise<ProgramCatalog> => {
+    const q = `program_id=${programId}&limit=200`;
+    const [specialties, curricula, subjects, info] = await Promise.all([
+      request<Specialty[]>(`/specialties?${q}`),
+      request<Curriculum[]>(`/curricula?${q}`),
+      request<Subject[]>(`/subjects?${q}`),
+      request<OfficialInfo>(`/programs/${programId}/official-info`),
+    ]);
+    return {
+      specialties, curricula, subjects, conditions: info.admission_conditions, fees: info.fees,
+      paymentTerms: info.payment_terms, asOf: info.as_of, complete: info.complete,
+    };
+  },
+  catalogCreate: (resource: CatalogResource, body: CatalogRow) => request<CatalogRow>(`/${resource}`, json("POST", body)),
+  catalogUpdate: (resource: CatalogResource, id: number, body: CatalogRow) => request<CatalogRow>(`/${resource}/${id}`, json("PATCH", body)),
+  catalogDelete: (resource: CatalogResource, id: number) => request<void>(`/${resource}/${id}`, { method: "DELETE" }),
+  /** Publication workflow of fees, payment terms and admission conditions: draft → published → archived. */
+  catalogAction: (resource: CatalogResource, id: number, action: OfficialAction) =>
+    request<CatalogRow>(`/${resource}/${id}/${action}`, { method: "POST" }),
   /** Files need the Bearer token, so fetch the bytes and open them as a blob URL. */
   openDocument: async (id: number): Promise<void> => {
     const token = getToken();

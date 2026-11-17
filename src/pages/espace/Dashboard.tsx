@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import Journey from "../../components/Journey";
 import { initials } from "../../components/CandidateLayout";
 import { useAuth } from "../../lib/auth";
+import { resolveFormationId } from "../../lib/catalog";
 import sparkles from "../../assets/d-sparkles.svg";
 import arrowRight from "../../assets/d-arrow-right.svg";
 import arrowUpRight from "../../assets/d-arrow-up-right.svg";
@@ -67,7 +68,7 @@ export default function Dashboard() {
                   <div className="rowb"><span className="chip2 hl line" style={{ color: "var(--navy)" }}>{p.inst}</span><img src={p.icon} alt="" /></div>
                   <b>{p.t}</b>
                   <span>{p.d}</span>
-                  <Link to={`/formations/${p.id}`} style={{ fontSize: 13.5, fontWeight: 600, color: "var(--navy)" }}>Découvrir →</Link>
+                  <Link to={`/formations/${resolveFormationId(p.id)}`} style={{ fontSize: 13.5, fontWeight: 600, color: "var(--navy)" }}>Découvrir →</Link>
                 </div>
               ))}
             </div>

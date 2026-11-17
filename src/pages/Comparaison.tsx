@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import Journey from "../components/Journey";
-import { FORMATIONS } from "../lib/catalog";
+import { FORMATIONS, resolveFormationId } from "../lib/catalog";
 import { useAuth } from "../lib/auth";
 import arrowUpRight from "../assets/arrow-up-right.svg";
 import circleCheck from "../assets/circle-check.svg";
@@ -28,7 +28,7 @@ export default function Comparaison() {
   const nav = useNavigate();
   const { user } = useAuth();
   const raw = params.get("ids")?.split(",").filter(Boolean) ?? [];
-  const ids = raw.length >= 2 ? raw : [...raw, ...DEFAULT_IDS.filter((d) => !raw.includes(d))].slice(0, 3);
+  const ids = raw.length >= 2 ? raw : [...raw, ...DEFAULT_IDS.map(resolveFormationId).filter((d) => !raw.includes(d))].slice(0, 3);
   const items = ids.map((id) => FORMATIONS.find((f) => f.id === id)).filter((f): f is NonNullable<typeof f> => !!f);
   const [chosen, setChosen] = useState(items[0]?.id);
   const chosenF = items.find((f) => f.id === chosen);
@@ -53,7 +53,7 @@ export default function Comparaison() {
 
       <div className="grid" style={{ gridTemplateColumns: `repeat(${Math.max(items.length, 1)}, minmax(0, 1fr))` }}>
         {items.map((f) => {
-          const d = DETAILS[f.id] ?? generic(f.keywords, f.institution);
+          const d = DETAILS[Object.keys(DETAILS).find((k) => resolveFormationId(k) === f.id) ?? f.id] ?? generic(f.keywords, f.institution);
           const sel = chosen === f.id;
           return (
             <article className={`cmp ${sel ? "sel" : ""}`} key={f.id}>

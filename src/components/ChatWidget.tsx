@@ -8,6 +8,7 @@ import arrowUp from "../assets/arrow-up.svg";
 import { api, ApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useI18n } from "../lib/i18n";
+import { arabiziToArabic, arabiziToLatinSpeech, looksArabizi } from "../lib/arabizi";
 
 type Lang = "Français" | "Tounsi" | "Arabizi";
 interface Turn {
@@ -62,8 +63,13 @@ export default function ChatWidget() {
     const synth = window.speechSynthesis;
     if (speakingIdx === i) { synth.cancel(); setSpeakingIdx(null); return; }
     synth.cancel();
-    const clean = text.replace(/[*#_`>]/g, " ").replace(/\s+/g, " ").trim();
-    if (!clean) return;
+    const plain = text.replace(/[*#_`>]/g, " ").replace(/\s+/g, " ").trim();
+    if (!plain) return;
+    // Arabizi : une voix française lirait « 3 » comme « trois ». On lit donc la version en lettres arabes (ع, ح, ق...).
+    const hasArabicVoice = synth.getVoices().some((v) => v.lang.toLowerCase().startsWith("ar"));
+    const clean = looksArabizi(plain)
+      ? (hasArabicVoice ? arabiziToArabic(plain) : arabiziToLatinSpeech(plain))
+      : plain;
     const u = new SpeechSynthesisUtterance(clean);
     const arabic = /[\u0600-\u06FF]/.test(clean);
     const hasTn = arabic && window.speechSynthesis.getVoices().some((v) => v.lang.toLowerCase() === "ar-tn");

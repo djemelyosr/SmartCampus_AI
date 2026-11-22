@@ -8,7 +8,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import current_user
+from app.api.deps import candidate_user, current_user
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.models import Document, Role, User
@@ -33,12 +33,12 @@ class DocumentOut(ORM):
 
 
 @router.get("", response_model=list[DocumentOut])
-def mine(user: User = Depends(current_user), db: Session = Depends(get_db)):
+def mine(user: User = Depends(candidate_user), db: Session = Depends(get_db)):
     return db.scalars(select(Document).where(Document.user_id == user.id).order_by(Document.id.desc())).all()
 
 
 @router.post("", response_model=DocumentOut, status_code=201)
-async def upload(kind: str = Form("Relevé de notes"), file: UploadFile = File(...), user: User = Depends(current_user), db: Session = Depends(get_db)):
+async def upload(kind: str = Form("Relevé de notes"), file: UploadFile = File(...), user: User = Depends(candidate_user), db: Session = Depends(get_db)):
     if kind not in KINDS:
         raise HTTPException(422, "Type de document inconnu")
     if file.content_type not in ALLOWED:

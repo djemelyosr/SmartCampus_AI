@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import current_user
+from app.api.deps import candidate_user
 from app.db.session import get_db
 from app.models.models import Appointment, PreRegistration, PreRegStatus, User
 
@@ -49,7 +49,7 @@ def _taken(db: Session) -> set[datetime]:
 
 
 @router.get("/slots")
-def slots(start: date | None = None, days: int = 7, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def slots(start: date | None = None, days: int = 7, user: User = Depends(candidate_user), db: Session = Depends(get_db)):
     """Bookable 30-min slots on weekdays (Mon-Fri), Tunis time, excluding past and taken slots."""
     days = max(1, min(days, 21))
     first = start or datetime.now(TUNIS).date()
@@ -65,7 +65,7 @@ def slots(start: date | None = None, days: int = 7, user: User = Depends(current
 
 
 @router.get("/me", response_model=list[AppointmentOut])
-def mine(user: User = Depends(current_user), db: Session = Depends(get_db)):
+def mine(user: User = Depends(candidate_user), db: Session = Depends(get_db)):
     pre_ids = db.scalars(select(PreRegistration.id).where(PreRegistration.user_id == user.id)).all()
     if not pre_ids:
         return []
@@ -74,7 +74,7 @@ def mine(user: User = Depends(current_user), db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=AppointmentOut, status_code=201)
-def book(body: BookIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def book(body: BookIn, user: User = Depends(candidate_user), db: Session = Depends(get_db)):
     pre = db.scalars(select(PreRegistration).where(PreRegistration.user_id == user.id).order_by(PreRegistration.id.desc())).first()
     if not pre:
         raise HTTPException(409, "Une pré-inscription est nécessaire avant de réserver un entretien")
@@ -97,7 +97,7 @@ def book(body: BookIn, user: User = Depends(current_user), db: Session = Depends
 
 
 @router.delete("/{appointment_id}", response_model=AppointmentOut)
-def cancel(appointment_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def cancel(appointment_id: int, user: User = Depends(candidate_user), db: Session = Depends(get_db)):
     a = db.get(Appointment, appointment_id)
     pre = db.get(PreRegistration, a.pre_registration_id) if a else None
     if not a or not pre or pre.user_id != user.id:

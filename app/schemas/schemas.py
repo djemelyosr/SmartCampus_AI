@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.models import Institution, Level, PreRegStatus, Role
 
@@ -15,17 +15,48 @@ class ORM(BaseModel):
         return v.replace(tzinfo=timezone.utc) if isinstance(v, datetime) and v.tzinfo is None else v
 
 
+def _check_password(v: str) -> str:
+    from app.core.config import settings
+
+    if len(v) < settings.password_min_length:
+        raise ValueError(f"password must be at least {settings.password_min_length} characters")
+    if len(v) > 128:
+        raise ValueError("password is too long")
+    return v
+
+
 class UserCreate(BaseModel):
+    """Public sign-up: always creates a candidate account."""
+
     email: EmailStr
     password: str
-    full_name: str = ""
+    full_name: str = Field("", max_length=255)
+
+    _pw = field_validator("password")(_check_password)
 
 
 class UserOut(ORM):
     id: int
-    email: EmailStr
+    email: str  # not re-validated on output
     full_name: str
     role: Role
+    is_active: bool = True
+
+
+class AdminUserCreate(UserCreate):
+    role: Role
+
+
+class AdminUserUpdate(BaseModel):
+    full_name: str | None = Field(None, max_length=255)
+    role: Role | None = None
+    is_active: bool | None = None
+    password: str | None = None
+
+    @field_validator("password")
+    @classmethod
+    def _pw(cls, v: str | None) -> str | None:
+        return None if v is None else _check_password(v)
 
 
 class Token(BaseModel):

@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import current_user
+from app.api.deps import candidate_user
 from app.db.session import get_db
 from app.models.models import PreRegistration, PreRegStatus, Qcm, User
 from app.services import qcm as qcm_service
@@ -45,7 +45,7 @@ def _view(qcm: Qcm) -> dict:
 
 
 @router.get("/current")
-def current(user: User = Depends(current_user), db: Session = Depends(get_db)):
+def current(user: User = Depends(candidate_user), db: Session = Depends(get_db)):
     """Return (creating it if needed) the QCM of the candidate's latest pre-registration."""
     pre = _latest_prereg(db, user)
     qcm = db.scalars(select(Qcm).where(Qcm.pre_registration_id == pre.id)).first()
@@ -59,7 +59,7 @@ def current(user: User = Depends(current_user), db: Session = Depends(get_db)):
 
 
 @router.put("/{qcm_id}/answers")
-def save_answers(qcm_id: int, body: AnswersIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def save_answers(qcm_id: int, body: AnswersIn, user: User = Depends(candidate_user), db: Session = Depends(get_db)):
     qcm = _own(db, qcm_id, user)
     if qcm.score is not None:
         raise HTTPException(409, "QCM déjà terminé")
@@ -80,7 +80,7 @@ def save_answers(qcm_id: int, body: AnswersIn, user: User = Depends(current_user
 
 
 @router.get("/{qcm_id}/results")
-def results(qcm_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def results(qcm_id: int, user: User = Depends(candidate_user), db: Session = Depends(get_db)):
     qcm = _own(db, qcm_id, user)
     if qcm.score is None:
         raise HTTPException(409, "Le QCM n’est pas terminé")

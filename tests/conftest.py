@@ -54,3 +54,31 @@ def program(client):
     db.add(p)
     db.commit()
     return p.id
+
+
+PW = "a-long-test-password"
+
+
+@pytest.fixture()
+def db(client):
+    """A session on the same in-memory database as the API."""
+    return next(api.dependency_overrides[get_db]())
+
+
+def login(client, email: str, password: str = PW) -> dict:
+    r = client.post("/api/auth/login", data={"username": email, "password": password})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+def make_user(db, client, role: str, email: str, password: str = PW, name: str = "") -> dict:
+    """Account with any role, created directly in the database (team roles cannot self-register)."""
+    from app.core.security import hash_password
+    from app.models.models import CandidateProfile, Role, User
+
+    u = User(email=email, full_name=name or email.split("@")[0], role=Role(role), hashed_password=hash_password(password))
+    if role == "candidate":
+        u.profile = CandidateProfile(consent_given=True)
+    db.add(u)
+    db.commit()
+    return login(client, email, password)

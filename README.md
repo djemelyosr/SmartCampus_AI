@@ -1,16 +1,6 @@
-# SmartCampus AI – Plateforme agentique d’orientation universitaire 
-
-# Design – Figma
-
-Découvrez le prototype de SmartCampus AI :
-
- [Voir le prototype SmartCampus AI sur Figma](https://www.figma.com/design/8JBtC37rgoEJcRYiSEAf09/SmartCampusIA?node-id=0-1)
-
----
-
 # SmartCampus AI – Backend (FastAPI)
 
-Installation, configuration, données de démonstration et démarrage : voir **[../GUIDE_DEMARRAGE.md](GUIDE_DEMARRAGE.md)**.
+Installation, configuration, données de démonstration et démarrage : voir **[../GUIDE_DEMARRAGE.md](../GUIDE_DEMARRAGE.md)**.
 
 Démarrage rapide (Windows `cmd`, depuis `backend`) :
 
@@ -20,7 +10,7 @@ Démarrage rapide (Windows `cmd`, depuis `backend`) :
 .venv\Scripts\python -m uvicorn app.main:app --reload
 ```
 
-SQLite par défaut (aucune installation) ; PostgreSQL + pgvector en option (`docker compose up -d db`, voir le guide).
+Base de données : PostgreSQL (pgvector utilisé s’il est installé). Créer l’utilisateur et la base : section 2 du guide.
 Documentation interactive : http://localhost:8000/docs
 
 ## API
@@ -53,4 +43,4 @@ Documentation interactive : http://localhost:8000/docs
 .venv\Scripts\python -m pytest
 ```
 
-SQLite en mémoire : n’utilise ni PostgreSQL ni votre base locale.
+Les tests utilisent la base PostgreSQL dédiée `smartcampus_test` (à créer une fois, voir le guide) ; autre adresse : `TEST_DATABASE_URL`.

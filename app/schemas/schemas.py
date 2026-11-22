@@ -11,7 +11,7 @@ class ORM(BaseModel):
     @field_validator("*", mode="after")
     @classmethod
     def _utc(cls, v):
-        # SQLite returns naive datetimes (stored as UTC): make the zone explicit so clients don't read them as local time.
+        # Naive datetimes are UTC: make the zone explicit so clients don't read them as local time.
         return v.replace(tzinfo=timezone.utc) if isinstance(v, datetime) and v.tzinfo is None else v
 
 

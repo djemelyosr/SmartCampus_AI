@@ -2,7 +2,6 @@
 
 import pytest
 from sqlalchemy import create_engine, text
-from sqlalchemy.pool import StaticPool
 
 from conftest import login
 
@@ -73,13 +72,27 @@ def test_demo_catalogue_is_visible_publicly(client, demo):
     assert client.get("/api/appointments/me", headers=demo["fatma.kchaou"]).json()[0]["status"] == "confirmed"
 
 
-def test_outdated_schema_is_detected():
+def test_outdated_schema_is_detected(engine):
     from app.db.session import create_tables, schema_problems
+    from conftest import TEST_DATABASE_URL
 
-    eng = create_engine("sqlite://", poolclass=StaticPool)
-    with eng.begin() as c:  # a users table from an older version (no is_active column)
-        c.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY, email VARCHAR, full_name VARCHAR, hashed_password VARCHAR, role VARCHAR, created_at DATETIME)"))
-    assert any(p.startswith("users: is_active") for p in schema_problems(eng))
-    fresh = create_engine("sqlite://", poolclass=StaticPool)
-    create_tables(fresh)
-    assert schema_problems(fresh) == []
+    def in_schema(name):  # an isolated PostgreSQL schema (public stays on the path for the pgvector type)
+        with engine.begin() as c:
+            c.execute(text(f"DROP SCHEMA IF EXISTS {name} CASCADE"))
+            c.execute(text(f"CREATE SCHEMA {name}"))
+        return create_engine(TEST_DATABASE_URL, connect_args={"options": f"-csearch_path={name},public"})
+
+    try:
+        old = in_schema("sc_outdated")
+        with old.begin() as c:  # a users table from an older version (no is_active column)
+            c.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY, email VARCHAR, full_name VARCHAR, hashed_password VARCHAR, role VARCHAR, created_at TIMESTAMPTZ)"))
+        assert any(p.startswith("users: is_active") for p in schema_problems(old))
+        old.dispose()
+        fresh = in_schema("sc_fresh")
+        create_tables(fresh)
+        assert schema_problems(fresh) == []
+        fresh.dispose()
+    finally:
+        with engine.begin() as c:
+            c.execute(text("DROP SCHEMA IF EXISTS sc_outdated CASCADE"))
+            c.execute(text("DROP SCHEMA IF EXISTS sc_fresh CASCADE"))

@@ -34,7 +34,7 @@ def _utc(dt: datetime) -> datetime:
 
 
 def _db_utc(dt: datetime) -> datetime:
-    """Values read from the DB: aware on PostgreSQL, naive (already UTC) on SQLite."""
+    """Make sure the value carries its UTC zone (naive values are UTC)."""
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 

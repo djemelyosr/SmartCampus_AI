@@ -1,13 +1,10 @@
 # SmartCampus AI — Guide d’installation et de démarrage en local
 
-> Sur cette branche, le backend est à la racine du dépôt (là où le guide dit `cd backend`). `setup.bat`, `start.bat`, le `docker-compose.yml` complet et le frontend font partie du projet global, pas de cette branche.
-
 Plateforme d’orientation IIT / ISB : un **frontend** React (Vite, port 3000) et un **backend** FastAPI (port 8000).
-En local, aucune base de données à installer : le backend utilise un fichier SQLite. PostgreSQL et Docker sont optionnels.
+La base de données est **PostgreSQL** (avec l’extension **pgvector** pour l’index RAG lorsqu’elle est installée).
 
 ```
-Navigateur ──► Frontend Vite :3000 ──(/api, /health)──► Backend FastAPI :8000 ──► SQLite (backend/smartcampus.db)
-                                                                              └─► ou PostgreSQL + pgvector (Docker)
+Navigateur ──► Frontend Vite :3000 ──(/api, /health)──► Backend FastAPI :8000 ──► PostgreSQL :5432 (base smartcampus)
 ```
 
 ---
@@ -18,9 +15,44 @@ Navigateur ──► Frontend Vite :3000 ──(/api, /health)──► Backend 
 |---|---|---|
 | Python | 3.11 ou plus | `python --version` |
 | Node.js (avec npm) | 20 ou plus | `node --version` |
-| Docker Desktop | optionnel (PostgreSQL ou pile complète) | `docker --version` |
+| PostgreSQL | 15 ou plus (installé, ou via Docker) | `psql --version` |
+| Docker Desktop | optionnel (PostgreSQL en conteneur ou pile complète) | `docker --version` |
 
-## 2. Démarrage rapide (Windows)
+## 2. Préparer PostgreSQL
+
+Le backend se connecte par défaut à :
+
+```
+postgresql+psycopg://smartcampus:smartcampus@localhost:5432/smartcampus
+                     utilisateur  mot de passe  hôte    port  base
+```
+
+Choisissez **une** des deux options.
+
+**Option A — PostgreSQL installé sur la machine** (par exemple le service Windows `postgresql-x64-17`).
+Ouvrez *SQL Shell (psql)* ou pgAdmin avec le compte `postgres`, puis exécutez :
+
+```sql
+CREATE USER smartcampus WITH PASSWORD 'smartcampus';
+CREATE DATABASE smartcampus OWNER smartcampus;
+CREATE DATABASE smartcampus_test OWNER smartcampus;   -- pour les tests automatiques uniquement
+```
+
+Facultatif, pour l’index RAG : installer pgvector (https://github.com/pgvector/pgvector), puis, connecté à la base
+`smartcampus` avec le compte `postgres` : `CREATE EXTENSION vector;`. Sans pgvector, le backend fonctionne et ignore
+seulement la table `document_chunks`.
+
+**Option B — PostgreSQL + pgvector dans Docker** : depuis `backend`, `docker compose up -d db`. L’utilisateur, le mot de
+passe et la base `smartcampus` sont créés automatiquement. Base des tests :
+`docker compose exec db createdb -U smartcampus smartcampus_test`. Le conteneur utilise le port 5432 : si un PostgreSQL installé
+tourne déjà sur ce port, arrêtez son service, ou changez le port publié (`"5433:5432"`) et `DATABASE_URL` (`localhost:5433`).
+
+Autre utilisateur, mot de passe ou port : modifiez `DATABASE_URL` dans `backend/.env`.
+Vérifier la connexion : `cd backend` puis `.venv\Scripts\python -m app.cli check`.
+
+## 3. Démarrage rapide (Windows)
+
+PostgreSQL doit être démarré (section 2).
 
 Depuis le dossier `SmartCampus` :
 
@@ -29,7 +61,7 @@ setup.bat
 ```
 
 Installe tout une seule fois : environnement Python et dépendances du backend, fichier `backend\.env` avec une clé secrète
-aléatoire, base de données avec les **données de démonstration**, puis dépendances du frontend (`npm ci`, versions exactes
+aléatoire, tables PostgreSQL avec les **données de démonstration**, puis dépendances du frontend (`npm ci`, versions exactes
 du `package-lock.json`).
 
 ```bat
@@ -42,7 +74,7 @@ Ouvre deux fenêtres (backend et frontend) puis le navigateur sur http://localho
 - Documentation interactive de l’API : http://localhost:8000/docs
 - Santé du backend : http://localhost:8000/health
 
-## 3. Démarrage manuel (Windows, macOS, Linux)
+## 4. Démarrage manuel (Windows, macOS, Linux)
 
 Sous Windows `cmd`, utilisez des barres obliques inverses (`.venv\Scripts\python`). Sous PowerShell, préfixez par `.\`.
 Sous macOS / Linux, remplacez `.venv\Scripts\python` par `.venv/bin/python`.
@@ -54,6 +86,7 @@ cd backend
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt -r requirements-dev.txt
 .venv\Scripts\python -m app.cli init-env      # crée .env avec une clé secrète aléatoire
+.venv\Scripts\python -m app.cli check         # vérifie la connexion à PostgreSQL
 .venv\Scripts\python -m app.cli seed-demo     # tables + données de démonstration
 .venv\Scripts\python -m uvicorn app.main:app --reload --port 8000
 ```
@@ -69,24 +102,24 @@ npm run dev
 Le serveur Vite envoie déjà `/api` et `/health` vers `http://localhost:8000` (`frontend/vite.config.ts`) : rien à configurer
 côté frontend.
 
-## 4. Configuration (`backend/.env`)
+## 5. Configuration (`backend/.env`)
 
-`backend/.env.example` liste tous les paramètres avec des valeurs adaptées au local. Les principaux :
+`backend/.env` est créé par `python -m app.cli init-env` (ou `setup.bat`) avec tous les paramètres et une clé secrète aléatoire. Les principaux :
 
 | Paramètre | Rôle | Valeur locale |
 |---|---|---|
 | `ENV` | `dev` : crée les tables au démarrage | `dev` |
-| `DATABASE_URL` | Base de données | `sqlite:///./smartcampus.db` |
+| `DATABASE_URL` | Connexion PostgreSQL | `postgresql+psycopg://smartcampus:smartcampus@localhost:5432/smartcampus` |
 | `SECRET_KEY` | Signature des jetons de connexion (≥ 32 caractères, jamais commitée) | générée par `init-env` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Durée d’une connexion | `60` |
 | `PASSWORD_MIN_LENGTH` | Longueur minimale des mots de passe (même règle que le frontend) | `12` |
 | `SEED_DEMO_DATA` | Ajoute les données de démonstration au démarrage si absentes | `true` |
 | `CORS_ORIGINS` | Origines autorisées à appeler l’API directement | `http://localhost:3000` |
-| `GUEST_*` | Sessions visiteur : durées et limites (voir §7) | voir `.env.example` |
+| `GUEST_*` | Sessions visiteur : durées et limites (voir §8) | voir `backend/.env` |
 
-`.env` n’est jamais commité (`.gitignore`). En production : `ENV=prod`, `SEED_DEMO_DATA=false`, une vraie clé secrète et PostgreSQL.
+`.env` n’est jamais commité (`.gitignore`). En production : `ENV=prod`, `SEED_DEMO_DATA=false`, une vraie clé secrète et un mot de passe PostgreSQL robuste.
 
-## 5. Données de démonstration
+## 6. Données de démonstration
 
 Créées par `setup.bat`, `python -m app.cli seed-demo` ou au démarrage si `SEED_DEMO_DATA=true`. Personnes et montants **fictifs**.
 
@@ -116,7 +149,7 @@ Scénario de démonstration conseillé :
 4. `entretien` : dossier d’entretien de Fatma (synthèse, QCM par thème, points à aborder).
 5. `direction` : tableau de bord global IIT / ISB. 6. `admin` : comptes et rôles, catalogue complet.
 
-## 6. Rôles et accès
+## 7. Rôles et accès
 
 | Rôle | Peut | Ne peut pas |
 |---|---|---|
@@ -132,7 +165,7 @@ Scénario de démonstration conseillé :
 - Le rôle est relu en base à chaque requête : un changement de rôle s’applique sans reconnexion.
 - Créer un administrateur sans passer par l’interface : `python -m app.cli create-admin --email vous@exemple.tn --name "Nom"`.
 
-## 7. Sessions visiteur et conversation invitée (API)
+## 8. Sessions visiteur et conversation invitée (API)
 
 Le chat reste ouvert sans compte. Le backend gère des **sessions visiteur temporaires** :
 
@@ -171,21 +204,27 @@ Seul un compte **candidat** peut rattacher une session ; une session expirée ou
 > État actuel du frontend : le widget de chat affiche « connectez-vous » aux visiteurs sans appeler l’API, et ne propose pas
 > encore le rattachement. Ces fonctions sont prêtes et testées côté backend ; il reste à brancher le chat dessus.
 
-## 8. Commandes utiles (`backend`)
+## 9. Commandes utiles (`backend`)
 
 ```bash
-.venv\Scripts\python -m app.cli check               # configuration utilisée + état du schéma
+.venv\Scripts\python -m app.cli check               # connexion PostgreSQL, pgvector, état du schéma
 .venv\Scripts\python -m app.cli seed-demo           # ajoute les données de démo (sans doublon)
 .venv\Scripts\python -m app.cli reset-db --yes      # SUPPRIME toutes les données et recrée la base (+ --demo)
 .venv\Scripts\python -m app.cli create-admin --email ... --name "..."
 .venv\Scripts\python -m app.cli purge-guests
-.venv\Scripts\python -m pytest                      # tests (base SQLite en mémoire, ne touche pas vos données)
+.venv\Scripts\python -m pytest                      # tests, sur la base PostgreSQL smartcampus_test
 ```
 
-## 9. Option Docker
+Les tests utilisent une base **dédiée** `smartcampus_test` (section 2), vidée et recréée à chaque lancement : vos données
+de la base `smartcampus` ne sont jamais touchées. Autre adresse : variable `TEST_DATABASE_URL`, par exemple en PowerShell :
 
-**Seulement PostgreSQL** (backend et frontend lancés à la main) : `cd backend && docker compose up -d db`, puis dans
-`backend/.env` : `DATABASE_URL=postgresql+psycopg://smartcampus:smartcampus@localhost:5432/smartcampus`.
+```powershell
+$env:TEST_DATABASE_URL = "postgresql+psycopg://smartcampus:smartcampus@localhost:5433/smartcampus_test"
+```
+
+## 10. Option Docker
+
+**Seulement PostgreSQL** : voir la section 2, option B.
 
 **Pile complète** (base + backend + frontend), depuis le dossier `SmartCampus` :
 
@@ -195,14 +234,3 @@ docker compose up --build
 
 Application sur http://localhost:8080 (nginx du frontend → `backend:8000`), API sur http://localhost:8000/docs,
 données de démonstration incluses.
-
-## 10. Problèmes fréquents
-
-| Symptôme | Solution |
-|---|---|
-| Le backend refuse de démarrer : « La base de données a été créée par une ancienne version » | La base locale date d’une version précédente. `cd backend` puis `.venv\Scripts\python -m app.cli reset-db --yes --demo` (supprime ses données). Pour la garder, renommez d’abord `smartcampus.db`. |
-| Page « Le serveur est injoignable » sur le frontend | Le backend n’est pas lancé sur le port 8000. |
-| `'.venv' is not recognized` | Sous `cmd`, écrivez `.venv\Scripts\python` (barres obliques inverses). |
-| `'vite' is not recognized` | Dépendances du frontend absentes : `cd frontend && npm ci`. |
-| Port 3000 ou 8000 déjà utilisé | Fermez l’autre serveur, ou changez le port (`--port` pour uvicorn, `server.port` dans `vite.config.ts`). |
-| Impossible de se connecter avec un compte de démo | Données de démo absentes : `python -m app.cli seed-demo`. |

@@ -85,7 +85,7 @@ def results(qcm_id: int, user: User = Depends(candidate_user), db: Session = Dep
     if qcm.score is None:
         raise HTTPException(409, "Le QCM n’est pas terminé")
     res = qcm_service.score({int(k): v for k, v in qcm.answers.items()})
-    fin = qcm.finished_at  # naive (UTC) on SQLite, aware on PostgreSQL
+    fin = qcm.finished_at  # timestamptz; a naive value is UTC
     res["finished_at"] = (fin if fin.tzinfo else fin.replace(tzinfo=timezone.utc)).isoformat() if fin else None
     res["disclaimer"] = "Score illustratif · Aucun seuil officiel d’admission · Décision humaine uniquement."
     return res

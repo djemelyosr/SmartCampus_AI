@@ -1,26 +1,48 @@
 import os
 
-os.environ.setdefault("ENV", "test")  # keep the app lifespan from touching PostgreSQL
+os.environ.setdefault("ENV", "test")  # keep the app lifespan from touching the development database
+
+# Tests run on PostgreSQL, in a DEDICATED database (every table is emptied before each test). Create it once:
+#   CREATE DATABASE smartcampus_test OWNER smartcampus;
+TEST_DATABASE_URL = os.environ.get(
+    "TEST_DATABASE_URL", "postgresql+psycopg://smartcampus:smartcampus@localhost:5432/smartcampus_test"
+)
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import close_all_sessions, sessionmaker
 
-from app.db.session import create_tables, get_db
+from app.db.session import DatabaseUnavailableError, check_connection, create_tables, drop_tables, get_db, _tables_for
 from app import models as _models  # noqa: F401  (register all tables)
 from app.main import app as api
 
 
+@pytest.fixture(scope="session")
+def engine():
+    """Test database, schema recreated once per test run."""
+    eng = create_engine(TEST_DATABASE_URL)
+    try:
+        check_connection(eng)
+    except DatabaseUnavailableError as e:
+        pytest.exit(f"{e} Tests need the test database: see GUIDE_DEMARRAGE.md (tests).", returncode=1)
+    drop_tables(eng)
+    create_tables(eng)
+    yield eng
+    close_all_sessions()
+    eng.dispose()
+
+
 @pytest.fixture()
-def client(tmp_path, monkeypatch):
-    """API on an in-memory SQLite DB (pgvector table excluded) and a temp upload dir."""
+def client(engine, tmp_path, monkeypatch):
+    """API on an empty test database and a temp upload dir."""
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "upload_dir", str(tmp_path / "uploads"))
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    create_tables(engine)
+    close_all_sessions()  # sessions left open by the previous test would block TRUNCATE
+    with engine.begin() as conn:
+        names = ", ".join(f'"{t.name}"' for t in _tables_for(engine))
+        conn.execute(text(f"TRUNCATE {names} RESTART IDENTITY CASCADE"))
     Session = sessionmaker(bind=engine, expire_on_commit=False)
 
     def override():
@@ -30,6 +52,7 @@ def client(tmp_path, monkeypatch):
     api.dependency_overrides[get_db] = override
     yield TestClient(api)
     api.dependency_overrides.clear()
+    close_all_sessions()
 
 
 def register(client, email: str, password: str = "a-long-test-password", name: str = "Test User") -> dict:

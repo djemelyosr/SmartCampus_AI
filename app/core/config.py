@@ -6,7 +6,8 @@ class Settings(BaseSettings):
 
     app_name: str = "SmartCampus AI"
     env: str = "dev"  # dev | test | prod — in dev the schema is created on startup
-    database_url: str = "sqlite:///./smartcampus.db"
+    # PostgreSQL (+ pgvector when installed). See GUIDE_DEMARRAGE.md to create the user and the database.
+    database_url: str = "postgresql+psycopg://smartcampus:smartcampus@localhost:5432/smartcampus"
     secret_key: str = "change-me"
     access_token_expire_minutes: int = 60
     cors_origins: str = "http://localhost:3000"

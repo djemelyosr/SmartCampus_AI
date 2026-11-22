@@ -1,31 +1,28 @@
 from collections.abc import Iterator
+from functools import cache
 
-from sqlalchemy import create_engine, event, inspect, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 from app.db.base import Base
 
-IS_SQLITE = settings.database_url.startswith("sqlite")
-
-if IS_SQLITE:
-    # Local, zero-install mode: a single file. Threads are fine since each request has its own session.
-    engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
-
-    @event.listens_for(engine, "connect")
-    def _sqlite_pragmas(dbapi_conn, _):
-        dbapi_conn.execute("PRAGMA foreign_keys=ON")
-else:
-    engine = create_engine(settings.database_url, pool_pre_ping=True)
+# The database is PostgreSQL (driver psycopg 3), configured by DATABASE_URL.
+engine = create_engine(settings.database_url, pool_pre_ping=True)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
-# Tables that only exist on PostgreSQL (pgvector). The RAG index is not available in SQLite mode.
-POSTGRES_ONLY_TABLES = {"document_chunks"}
+# Tables that need the pgvector extension (RAG index). Skipped when the extension is not installed on the server.
+VECTOR_TABLES = {"document_chunks"}
 
 
 class OutdatedSchemaError(RuntimeError):
+    pass
+
+
+class DatabaseUnavailableError(RuntimeError):
     pass
 
 
@@ -34,12 +31,23 @@ def get_db() -> Iterator[Session]:
         yield db
 
 
+@cache
+def _vector_available(url: str) -> bool:
+    with create_engine(url).connect() as conn:
+        return conn.execute(text("SELECT 1 FROM pg_available_extensions WHERE name = 'vector'")).first() is not None
+
+
+def vector_available(bind: Engine) -> bool:
+    """True when the PostgreSQL server can provide the pgvector extension."""
+    return _vector_available(bind.url.render_as_string(hide_password=False))
+
+
 def _tables_for(bind: Engine) -> list:
     import app.models  # noqa: F401  (register tables)
 
-    if bind.dialect.name == "sqlite":
-        return [t for n, t in Base.metadata.tables.items() if n not in POSTGRES_ONLY_TABLES]
-    return list(Base.metadata.tables.values())
+    if vector_available(bind):
+        return list(Base.metadata.tables.values())
+    return [t for n, t in Base.metadata.tables.items() if n not in VECTOR_TABLES]
 
 
 def schema_problems(bind: Engine) -> list[str]:
@@ -57,8 +65,8 @@ def schema_problems(bind: Engine) -> list[str]:
 
 
 def create_tables(bind: Engine) -> None:
-    """Create the schema on PostgreSQL (with pgvector) or SQLite (without the vector tables)."""
-    if bind.dialect.name != "sqlite":
+    """Create the schema; enable pgvector first when the server provides it."""
+    if vector_available(bind):
         with bind.begin() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     Base.metadata.create_all(bind, tables=_tables_for(bind))
@@ -68,10 +76,25 @@ def drop_tables(bind: Engine) -> None:
     Base.metadata.drop_all(bind, tables=[t for t in _tables_for(bind) if t.name in inspect(bind).get_table_names()])
 
 
+def check_connection(bind: Engine = engine) -> None:
+    """Fail early with a readable message when PostgreSQL cannot be reached."""
+    try:
+        with bind.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except OperationalError as e:
+        where = bind.url.render_as_string(hide_password=True)
+        raise DatabaseUnavailableError(
+            f"Impossible de se connecter à PostgreSQL ({where}). Vérifiez que le serveur est démarré, que la base et "
+            "l'utilisateur existent, et la valeur de DATABASE_URL dans backend/.env (voir GUIDE_DEMARRAGE.md). "
+            f"Détail : {str(e.orig).strip().splitlines()[0] if e.orig else e}"
+        ) from None
+
+
 def init_db() -> None:
     """Startup in dev: check the schema, create missing tables, add the base catalogue (and demo data if enabled)."""
     from app.seed import seed_programs
 
+    check_connection()
     problems = schema_problems(engine)
     if problems:
         raise OutdatedSchemaError(

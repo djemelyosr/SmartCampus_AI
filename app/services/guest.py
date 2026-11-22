@@ -32,7 +32,7 @@ def now() -> datetime:
 
 
 def aware(dt: datetime | None) -> datetime | None:
-    """SQLite returns naive datetimes (stored as UTC)."""
+    """Treat a naive datetime as UTC (columns are timestamptz, but values set in Python may still be naive)."""
     return dt if dt is None or dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 

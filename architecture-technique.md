@@ -2,15 +2,15 @@
 
 ## 1. Présentation générale
 
-SmartCampus AI est une plateforme intelligente d'orientation universitaire destinée aux futurs étudiants de l'IIT et de l'ISB.
+SmartCampus AI est une plateforme intelligente d'orientation universitaire destinée aux futurs étudiants de l'Institut International de Technologie (IIT) et de l'International School of Business (ISB).
 
 L'architecture technique repose sur une séparation entre l'interface utilisateur, les services métier, les agents d'intelligence artificielle, les traitements automatiques et le stockage des données.
 
-Cette organisation vise à faciliter la maintenance, la sécurité et l'évolution du système.
+Cette organisation vise à faciliter la maintenance, la sécurité, l'évolutivité et l'intégration progressive des fonctionnalités intelligentes.
 
 ## 2. Diagramme d'architecture technique
 
-Le diagramme suivant présente les composants techniques de SmartCampus AI et les principales communications entre eux.
+Le diagramme suivant présente l'architecture technique cible de SmartCampus AI, les principaux composants du système et leurs communications.
 
 ![Architecture technique SmartCampus AI](architectureIA.drawio.svg)
 
@@ -18,69 +18,98 @@ Le diagramme suivant présente les composants techniques de SmartCampus AI et le
 
 | Composant | Technologie | Rôle et justification |
 |---|---|---|
-| Frontend | React, Vite, TypeScript | Développement d'une interface interactive pour le chatbot, l'espace candidat et les tableaux de bord. |
-| Backend | FastAPI, Python | Gestion des API REST, de l'authentification, des autorisations et des fonctionnalités métier. Python facilite l'intégration des outils IA. |
-| Reverse Proxy | Nginx | Distribution des fichiers frontend et transmission des requêtes API au backend. HTTPS/TLS prévu pour le déploiement. |
-| Base de données | PostgreSQL, pgvector | Stockage structuré des données métier et recherche vectorielle pour le RAG. |
-| Orchestration agentique | LangGraph | Coordination des agents IA, gestion du dialogue et des différentes étapes du parcours candidat. |
-| Modèle de langage | LLM open source | Compréhension des demandes et génération de réponses adaptées au français, au tunisien et à l'Arabizi. |
-| Transcription audio | Whisper | Conversion des messages vocaux en texte pour leur traitement. |
-| Recherche documentaire | RAG et embeddings | Recherche d'informations pertinentes dans les documents officiels IIT/ISB pour produire des réponses justifiées. |
-| Stockage de fichiers | Stockage privé | Conservation des documents, justificatifs, PDF et fichiers audio. |
-| Traitements automatiques | Celery, Redis, workers | Planification et exécution différée des tâches d'indexation, de relance et de notification. |
-| Communication | SMTP ou API email | Envoi des confirmations, invitations et rappels autorisés. |
+| Frontend | React, Vite, TypeScript | Développement des interfaces du chatbot, de l'espace candidat et des tableaux de bord. React facilite la création de composants réutilisables, tandis que Vite simplifie le développement et la compilation. |
+| Backend | FastAPI, Python | Gestion des API REST, de l'authentification, des autorisations et des services métier. Python facilite l'intégration avec les bibliothèques d'intelligence artificielle. |
+| Reverse Proxy | Nginx | Distribution des fichiers frontend et transmission des requêtes API vers FastAPI. HTTPS/TLS reste à configurer pour le déploiement. |
+| Base de données | PostgreSQL, SQLAlchemy | Stockage des comptes, profils, formations, préinscriptions, QCM et rendez-vous. PostgreSQL assure la gestion des données relationnelles et des transactions. |
+| Recherche vectorielle | pgvector | Extension de PostgreSQL permettant de stocker les embeddings et d'effectuer des recherches par similarité pour le RAG. |
+| Orchestration agentique | LangGraph (cible) | Coordination des agents IA, gestion de l'état conversationnel et intégration des étapes nécessitant une intervention humaine. |
+| Modèle de langage | LLM open source (à sélectionner) | Compréhension des demandes et génération de réponses adaptées au contexte universitaire, avec une évaluation spécifique du français, du tunisien et de l'Arabizi. |
+| Transcription audio | Whisper (prévu) | Conversion des messages vocaux en texte. La précision sur le dialecte tunisien devra être évaluée. |
+| Recherche documentaire | RAG et modèle d'embeddings | Recherche des informations pertinentes dans les documents officiels IIT/ISB pour produire des réponses contextualisées et justifiées. |
+| Stockage documentaire | Fichiers privés | Conservation des PDF, justificatifs et documents. Le dossier local `uploads/` est actuellement utilisé ; MinIO ou Amazon S3 constituent des évolutions possibles. |
+| Traitements automatiques | Celery, Redis et workers (prévus) | Planification, distribution et exécution différée des opérations longues, notamment l'indexation documentaire et les relances. |
+| Notifications | SMTP ou API email (prévu) | Envoi des confirmations, invitations et rappels selon les règles métier et les autorisations applicables. |
 
 ## 4. Architecture agentique
 
-L'orchestration agentique proposée repose sur quatre agents spécialisés :
+L'architecture agentique proposée repose sur **quatre agents spécialisés**, coordonnés par un superviseur LangGraph.
 
-- **Agent RAG :** recherche les informations officielles relatives aux formations IIT et ISB.
-- **Agent Profil :** collecte et analyse les informations scolaires, les intérêts et les préférences du candidat.
-- **Agent Orientation :** compare les parcours et propose des recommandations justifiées.
-- **Agent Parcours Candidat :** accompagne la préinscription, le QCM, les rendez-vous et le suivi du dossier.
+| Agent | Responsabilité |
+|---|---|
+| Agent RAG | Rechercher les informations officielles des formations IIT et ISB et fournir des références documentaires. |
+| Agent Profil | Collecter et analyser les résultats scolaires, les intérêts et les préférences du candidat. |
+| Agent Orientation | Comparer les parcours selon le profil, les prérequis et les règles d'orientation. |
+| Agent Parcours Candidat | Accompagner les étapes de préinscription, de QCM, de rendez-vous et de suivi du dossier. |
 
-Un superviseur LangGraph coordonne les étapes nécessaires selon la demande de l'utilisateur.
+Dans l'architecture cible, le **superviseur LangGraph** coordonnera les agents selon la demande du candidat et les étapes nécessaires.
 
-La mémoire conversationnelle conserve les informations utiles du dialogue et l'état d'avancement du candidat.
+Les agents pourront partager une mémoire et un état conversationnel contenant l'historique utile, le profil du candidat et son étape actuelle. La persistance de ces informations devra être configurée selon les besoins et les règles de conservation.
 
-Un composant d'évaluation et de traçabilité permet de suivre les performances des agents, la qualité des réponses et les sources utilisées.
+Un composant d'**évaluation et de traçabilité IA** permettra de suivre les erreurs, les sources documentaires, la qualité des réponses et les performances multilingues.
+
+Les agents proposent des actions, mais leur exécution reste soumise aux contrôles des services métier. Les décisions officielles d'admission relèvent des responsables humains habilités.
 
 ## 5. Communication entre les composants
 
-Les principaux échanges sont organisés de la manière suivante :
+Les principaux échanges de l'architecture sont les suivants :
 
-1. **React → FastAPI :** transmission des requêtes via l'API REST.
-2. **FastAPI ↔ PostgreSQL :** lecture et enregistrement des données métier.
-3. **FastAPI → LangGraph :** déclenchement des traitements agentiques.
-4. **Agents IA ↔ LLM :** compréhension et génération des réponses.
-5. **Agent RAG ↔ pgvector :** recherche vectorielle dans les documents indexés.
-6. **FastAPI ↔ Stockage privé :** dépôt et consultation des fichiers autorisés.
-7. **FastAPI / Celery Beat → Redis → Workers :** déclenchement et distribution des tâches différées.
-8. **Workers → Service email :** envoi des notifications après vérification des règles métier.
+1. **Frontend React ↔ Backend FastAPI :** communication via des API REST et échange des données au format JSON. HTTPS est prévu pour le déploiement.
+2. **Nginx → FastAPI :** transmission des requêtes API au serveur backend.
+3. **FastAPI ↔ PostgreSQL :** lecture, création et mise à jour des données métier à travers SQLAlchemy.
+4. **FastAPI → Orchestrateur LangGraph :** déclenchement des traitements agentiques prévus pour les conversations et l'orientation.
+5. **Orchestrateur ↔ LLM :** analyse des messages et génération des réponses.
+6. **Agent RAG ↔ PostgreSQL/pgvector :** recherche des documents pertinents à partir des représentations vectorielles.
+7. **FastAPI ↔ Stockage privé :** dépôt et consultation des documents après contrôle des autorisations.
+8. **FastAPI ou Celery Beat → Redis → Workers :** distribution et exécution des tâches différées dans l'architecture cible.
+9. **Workers → Service email :** envoi des notifications et rappels autorisés.
 
-Les responsables académiques et les responsables d'entretien conservent la responsabilité des décisions officielles d'admission.
+Les interactions avec les modèles IA, la file de tâches et les services de notification correspondent aux intégrations prévues.
 
-## 6. Sécurité et contrôle
+## 6. Sécurité, consentement et traçabilité
 
-L'architecture prévoit les mécanismes suivants :
+Plusieurs mécanismes de sécurité sont déjà intégrés au backend :
 
-- Authentification par JWT et contrôle des accès selon les rôles (RBAC).
-- Validation des données avec Pydantic.
-- Protection des documents et des données personnelles.
-- Gestion du consentement avant les actions qui le nécessitent.
-- Traçabilité des opérations et des traitements IA.
-- Validation humaine des décisions officielles.
+- **Authentification JWT :** identification des utilisateurs connectés.
+- **Contrôle d'accès RBAC :** limitation des opérations selon les rôles.
+- **Restrictions par établissement :** mécanismes permettant de limiter certaines opérations des responsables académiques au périmètre IIT ou ISB.
+- **Validation Pydantic :** vérification des données reçues par les API.
 
-## 7. État de l'architecture
+L'architecture prévoit également :
 
-Cette architecture représente la **conception cible de SmartCampus AI**.
+- Le chiffrement des communications externes avec HTTPS/TLS.
+- La protection des documents privés et des informations personnelles.
+- La vérification du consentement lorsque celui-ci est nécessaire.
+- La journalisation des traitements et des événements importants.
+- La traçabilité des sources utilisées par le RAG.
+- La validation humaine des décisions officielles.
 
-Le projet dispose déjà d'un socle React/Vite et FastAPI, avec SQLite utilisé par défaut en développement local.
+Ces mécanismes devront être complétés et testés au fur et à mesure du développement.
 
-PostgreSQL avec pgvector est prévu pour les données et la recherche documentaire. Les intégrations complètes de LangGraph, Whisper, Celery, Redis et des autres services IA restent à développer ou à confirmer avec l'équipe.
+## 7. État actuel et évolutions prévues
+
+L'architecture présentée représente la **conception cible de SmartCampus AI**. Certains composants existent déjà, tandis que d'autres restent à intégrer.
+
+| Composant | État |
+|---|---|
+| React, Vite et TypeScript | Socle frontend présent |
+| FastAPI et SQLAlchemy | Socle backend présent |
+| Authentification JWT et contrôle RBAC | Mécanismes implémentés |
+| Restriction des accès par établissement | Mécanismes présents dans le backend |
+| Nginx | Configuration de reverse proxy présente ; TLS à compléter |
+| SQLite | Base utilisée par défaut en développement local |
+| PostgreSQL + pgvector | Pris en charge en option ; indexation RAG complète à finaliser |
+| LangGraph et agents spécialisés | Architecture cible à implémenter |
+| Whisper et LLM open source | Intégrations et évaluations prévues |
+| Celery, Redis et workers | Solutions proposées, à confirmer avec l'équipe |
+| Stockage privé | Dossier `uploads/` actuel ; MinIO/S3 possibles ultérieurement |
+
+Les technologies cibles seront progressivement intégrées et validées selon les priorités du projet.
 
 ## 8. Conclusion
 
-Cette architecture permet de séparer les responsabilités techniques et métier de SmartCampus AI.
+L'architecture technique de SmartCampus AI est conçue autour d'une séparation claire entre le frontend, le backend, les services métier, les composants IA, les traitements automatiques et le stockage.
 
-Elle constitue une base structurée pour le développement progressif de la plateforme, l'intégration des agents IA et la gestion sécurisée du parcours d'orientation et de préinscription.
+Les choix technologiques visent à assurer une application modulaire, maintenable et évolutive, tout en permettant l'intégration progressive d'un système agentique d'orientation universitaire.
+
+Cette architecture constitue une base de conception pour le développement, l'évaluation et l'amélioration continue de SmartCampus AI.

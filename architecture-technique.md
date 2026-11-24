@@ -12,7 +12,7 @@ Cette organisation vise à faciliter la maintenance, la sécurité, l'évolutivi
 
 Le diagramme suivant présente l'architecture technique cible de SmartCampus AI, les principaux composants du système et leurs communications.
 
-![Architecture technique SmartCampus AI](architectureIA.drawio.svg)
+![Architecture technique SmartCampus AI](architectureSmart.drawio.svg)
 
 ## 3. Composants techniques et justification des choix
 

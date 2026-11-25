@@ -154,7 +154,7 @@ Les recommandations proposées par SmartCampus AI servent à aider les étudiant
 
 Ce diagramme présente les principales fonctionnalités de SmartCampus AI et montre comment les différents acteurs interagissent avec la plateforme. Il permet de visualiser les services accessibles au visiteur, au candidat et aux responsables.
 
-![Diagramme de cas d'utilisation UML de SmartCampus AI](cas-utilisation.drawio.svg)
+![Diagramme de cas d'utilisation UML de SmartCampus AI](DiagramUseCase.drawio.svg)
 
 ## 7. Conclusion
 

@@ -1,328 +1,288 @@
-"""Request/response models of the academic catalogue (formations, specialties, curricula, subjects)
-and of the official information (admission conditions, fees, payment terms)."""
+"""Schemas of the academic catalogue (formations, spécialités, programmes pédagogiques, matières, conditions d'admission)."""
 
-import re
-from datetime import date, datetime, timedelta, timezone
-from typing import Literal
+from datetime import date, datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.models.models import Institution, Level, PublicationStatus
+from app.models.catalog import ConditionKind, FeePeriod, PaymentMethod, PublicationStatus
+from app.models.models import Institution, Level
 from app.schemas.schemas import ORM
 
-TUNIS = timezone(timedelta(hours=1))  # Tunisia: UTC+1, no DST
+Name = Annotated[str, Field(min_length=1, max_length=255)]
+OptName = Name | None
 
 
-def today_tn() -> date:
-    """Calendar day in Tunisia: validity periods are compared to this day (same rule as the frontend)."""
-    return datetime.now(TUNIS).date()
-
-
-def is_official(status: PublicationStatus | str, active: bool, valid_from: date | None, valid_until: date | None, on: date | None = None) -> bool:
-    on = on or today_tn()
-    return (
-        PublicationStatus(status) == PublicationStatus.published
-        and bool(active)
-        and (valid_from is None or valid_from <= on)
-        and (valid_until is None or valid_until >= on)
-    )
-
-
-_YEAR = re.compile(r"^(\d{4})-(\d{4})$")
-
-
-def _academic_year(v: str | None) -> str | None:
-    if v is None or v == "":
-        return None
-    m = _YEAR.match(v.strip())
-    if not m or int(m.group(2)) != int(m.group(1)) + 1:
-        raise ValueError("academic_year must look like 2026-2027")
-    return v.strip()
-
-
-class _In(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-
-class _Validity(_In):
-    valid_from: date | None = None
-    valid_until: date | None = None
-    academic_year: str | None = None
-
-    _year = field_validator("academic_year")(_academic_year)
-
-    @model_validator(mode="after")
-    def _period(self):
-        if self.valid_from and self.valid_until and self.valid_until < self.valid_from:
-            raise ValueError("valid_until must not be before valid_from")
-        return self
-
-
-Name = Field(min_length=1, max_length=255)
-Kind = Literal["diploma", "average", "document", "exam", "language", "age", "other"]
-Period = Literal["annual", "semester", "one_time"]
-Method = Literal["bank_transfer", "cash", "cheque", "card", "online", "other"]
-Currency = Field(pattern=r"^[A-Z]{3}$")
-
-# ----------------------------------------------------------------------------- programs (formations)
-
-
-class ProgramCreate(_In):
-    institution: Institution
-    level: Level
-    name: str = Name
-    description: str = ""
-    admission_requirements: str = ""
-    duration_years: int | None = Field(None, ge=1, le=10)
-    career_outcomes: list[str] = []
-    active: bool = True
-
-
-class ProgramUpdate(_In):
+# --- Formations (programs) -------------------------------------------------------------------------------------------
+class ProgramUpdate(BaseModel):
     institution: Institution | None = None
     level: Level | None = None
-    name: str | None = Field(None, min_length=1, max_length=255)
+    name: OptName = None
     description: str | None = None
     admission_requirements: str | None = None
-    duration_years: int | None = Field(None, ge=1, le=10)
+    duration_years: int | None = Field(default=None, ge=1, le=10)
     career_outcomes: list[str] | None = None
     active: bool | None = None
 
 
-class ProgramRead(ORM):
-    id: int
-    institution: Institution
-    level: Level
-    name: str
-    description: str
-    admission_requirements: str
-    duration_years: int | None
-    career_outcomes: list[str]
-    active: bool
-
-
-# ----------------------------------------------------------------------------- specialties
-
-
-class SpecialtyCreate(_In):
+# --- Spécialités ------------------------------------------------------------------------------------------------------
+class SpecialtyIn(BaseModel):
     program_id: int
-    name: str = Name
+    name: Name
     description: str = ""
-    active: bool = True
 
 
-class SpecialtyUpdate(_In):
-    name: str | None = Field(None, min_length=1, max_length=255)
+class SpecialtyUpdate(BaseModel):
+    name: OptName = None
     description: str | None = None
     active: bool | None = None
 
 
-class SpecialtyRead(ORM):
+class SpecialtyOut(ORM):
     id: int
     program_id: int
     name: str
     description: str
     active: bool
+    created_at: datetime
 
 
-# ----------------------------------------------------------------------------- curricula (teaching programmes)
-
-
-class CurriculumCreate(_In):
-    program_id: int
-    specialty_id: int | None = None
-    name: str = Name
-    academic_year: str | None = None
+# --- Matières --------------------------------------------------------------------------------------------------------
+class SubjectFields(BaseModel):
+    code: str | None = Field(default=None, min_length=1, max_length=32)
+    semester: int | None = Field(default=None, ge=1, le=12)
+    credits: int | None = Field(default=None, ge=0, le=60)
+    coefficient: float | None = Field(default=None, ge=0, le=100)
+    hours: int | None = Field(default=None, ge=0, le=2000)
     description: str = ""
-    active: bool = True
-
-    _year = field_validator("academic_year")(_academic_year)
 
 
-class CurriculumUpdate(_In):
-    specialty_id: int | None = None
-    name: str | None = Field(None, min_length=1, max_length=255)
-    academic_year: str | None = None
-    description: str | None = None
-    active: bool | None = None
-
-    _year = field_validator("academic_year")(_academic_year)
-
-
-class CurriculumRead(ORM):
-    id: int
-    program_id: int
-    specialty_id: int | None
-    name: str
-    academic_year: str | None
-    description: str
-    active: bool
-
-
-# ----------------------------------------------------------------------------- subjects
-
-
-class _SubjectFields(_In):
-    code: str | None = Field(None, max_length=32)
-    semester: int | None = Field(None, ge=1, le=12)
-    credits: float | None = Field(None, ge=0, le=60)
-    coefficient: float | None = Field(None, ge=0, le=20)
-    hours: float | None = Field(None, ge=0, le=2000)
-
-
-class SubjectCreate(_SubjectFields):
+class SubjectIn(SubjectFields):
     curriculum_id: int
-    name: str = Name
-    description: str = ""
-    active: bool = True
+    name: Name
 
 
-class SubjectUpdate(_SubjectFields):
+class SubjectUpdate(BaseModel):
     curriculum_id: int | None = None
-    name: str | None = Field(None, min_length=1, max_length=255)
+    name: OptName = None
+    code: str | None = Field(default=None, min_length=1, max_length=32)
+    semester: int | None = Field(default=None, ge=1, le=12)
+    credits: int | None = Field(default=None, ge=0, le=60)
+    coefficient: float | None = Field(default=None, ge=0, le=100)
+    hours: int | None = Field(default=None, ge=0, le=2000)
     description: str | None = None
     active: bool | None = None
 
 
-class SubjectRead(ORM):
+class SubjectOut(ORM):
     id: int
     curriculum_id: int
     code: str | None
     name: str
     semester: int | None
-    credits: float | None
+    credits: int | None
     coefficient: float | None
-    hours: float | None
+    hours: int | None
     description: str
     active: bool
 
 
-# ----------------------------------------------------------------------------- official information
+# --- Programmes pédagogiques -----------------------------------------------------------------------------------------
+class CurriculumIn(BaseModel):
+    program_id: int
+    specialty_id: int | None = None
+    name: Name
+    academic_year: str | None = Field(default=None, pattern=r"^\d{4}-\d{4}$")  # e.g. 2026-2027
+    description: str = ""
 
 
-class OfficialRead(ORM):
+class CurriculumUpdate(BaseModel):
+    specialty_id: int | None = None
+    name: OptName = None
+    academic_year: str | None = Field(default=None, pattern=r"^\d{4}-\d{4}$")
+    description: str | None = None
+    active: bool | None = None
+
+
+class CurriculumOut(ORM):
+    id: int
+    program_id: int
+    specialty_id: int | None
+    name: str
+    academic_year: str | None
+    description: str
+    active: bool
+    created_at: datetime
+
+
+class CurriculumDetailOut(CurriculumOut):
+    subjects: list[SubjectOut] = []
+
+
+# --- Official information: publication status + validity period ---------------------------------------------------------
+# Fees, payment terms and admission conditions share these fields. Candidates and the AI agent only ever see items that
+# are published AND inside their validity period (empty bound = open).
+def _check_period(valid_from: date | None, valid_until: date | None) -> None:
+    if valid_from and valid_until and valid_until < valid_from:
+        raise ValueError("valid_until must not be before valid_from")
+
+
+class OfficialFields(BaseModel):
+    status: PublicationStatus = PublicationStatus.draft  # `published` publishes right away; draft by default
+    valid_from: date | None = None
+    valid_until: date | None = None
+    academic_year: str | None = Field(default=None, pattern=r"^\d{4}-\d{4}$")  # e.g. 2026-2027
+
+    @field_validator("status")
+    @classmethod
+    def _not_archived(cls, v: PublicationStatus) -> PublicationStatus:
+        if v == PublicationStatus.archived:
+            raise ValueError("A new item cannot be created as archived")
+        return v
+
+    @model_validator(mode="after")
+    def _period(self):
+        _check_period(self.valid_from, self.valid_until)
+        return self
+
+
+class OfficialUpdate(BaseModel):
+    """The status is never patched directly: it changes through /publish, /archive and /draft."""
+
+    valid_from: date | None = None
+    valid_until: date | None = None
+    academic_year: str | None = Field(default=None, pattern=r"^\d{4}-\d{4}$")
+
+    @model_validator(mode="after")
+    def _period(self):
+        _check_period(self.valid_from, self.valid_until)
+        return self
+
+
+class OfficialOut(ORM):
     status: PublicationStatus
     valid_from: date | None
     valid_until: date | None
     academic_year: str | None
     published_at: datetime | None
-    active: bool
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def official(self) -> bool:
-        """Visible to candidates and the AI agent right now."""
-        return is_official(self.status, self.active, self.valid_from, self.valid_until)
+    official: bool  # published, active and valid today: what candidates and the agent can see
 
 
-class AdmissionConditionCreate(_Validity):
+# --- Conditions d'admission ------------------------------------------------------------------------------------------
+class AdmissionConditionIn(OfficialFields):
     program_id: int
-    specialty_id: int | None = None
-    kind: Kind
-    title: str = Name
+    specialty_id: int | None = None  # empty = applies to the whole formation
+    kind: ConditionKind = ConditionKind.other
+    title: Name
     description: str = ""
     required: bool = True
-    threshold: float | None = Field(None, ge=0)
-    active: bool = True
+    threshold: float | None = Field(default=None, ge=0)
 
 
-class AdmissionConditionUpdate(_Validity):
+class AdmissionConditionUpdate(OfficialUpdate):
     specialty_id: int | None = None
-    kind: Kind | None = None
-    title: str | None = Field(None, min_length=1, max_length=255)
+    kind: ConditionKind | None = None
+    title: OptName = None
     description: str | None = None
     required: bool | None = None
-    threshold: float | None = Field(None, ge=0)
+    threshold: float | None = Field(default=None, ge=0)
     active: bool | None = None
 
 
-class AdmissionConditionRead(OfficialRead):
+class AdmissionConditionOut(OfficialOut):
     id: int
     program_id: int
     specialty_id: int | None
-    kind: str
+    kind: ConditionKind
     title: str
     description: str
     required: bool
     threshold: float | None
+    active: bool
+    created_at: datetime
 
 
-class FeeCreate(_Validity):
+# --- Frais de scolarité (tarifs) ---------------------------------------------------------------------------------------
+class FeeIn(OfficialFields):
     program_id: int
-    specialty_id: int | None = None
-    label: str = Name
-    amount: float = Field(ge=0)
-    currency: str = Currency
-    period: Period
+    specialty_id: int | None = None  # empty = applies to the whole formation
+    label: Name
+    amount: float = Field(ge=0, le=1_000_000)
+    currency: str = Field(default="TND", pattern=r"^[A-Z]{3}$")
+    period: FeePeriod = FeePeriod.annual
     description: str = ""
-    active: bool = True
 
 
-class FeeUpdate(_Validity):
+class FeeUpdate(OfficialUpdate):
     specialty_id: int | None = None
-    label: str | None = Field(None, min_length=1, max_length=255)
-    amount: float | None = Field(None, ge=0)
-    currency: str | None = Field(None, pattern=r"^[A-Z]{3}$")
-    period: Period | None = None
+    label: OptName = None
+    amount: float | None = Field(default=None, ge=0, le=1_000_000)
+    currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    period: FeePeriod | None = None
     description: str | None = None
     active: bool | None = None
 
 
-class FeeRead(OfficialRead):
+class FeeOut(OfficialOut):
     id: int
     program_id: int
     specialty_id: int | None
     label: str
     amount: float
     currency: str
-    period: str
+    period: FeePeriod
     description: str
+    active: bool
+    created_at: datetime
 
 
-class PaymentTermCreate(_Validity):
+# --- Modalités de paiement -----------------------------------------------------------------------------------------------
+class PaymentTermIn(OfficialFields):
     program_id: int
-    specialty_id: int | None = None
-    fee_id: int | None = None
-    method: Method
-    title: str = Name
+    specialty_id: int | None = None  # empty = applies to the whole formation
+    fee_id: int | None = None  # optional: the fee these terms apply to
+    method: PaymentMethod = PaymentMethod.other
+    title: Name
     description: str = ""
-    installments: int = Field(1, ge=1, le=36)
-    down_payment_percent: float | None = Field(None, ge=0, le=100)
-    due_date: date | None = None
-    active: bool = True
+    installments: int = Field(default=1, ge=1, le=36)  # number of payments
+    down_payment_percent: float | None = Field(default=None, ge=0, le=100)  # share due at registration
+    due_date: date | None = None  # last day to pay (full amount or first instalment)
 
 
-class PaymentTermUpdate(_Validity):
+class PaymentTermUpdate(OfficialUpdate):
     specialty_id: int | None = None
     fee_id: int | None = None
-    method: Method | None = None
-    title: str | None = Field(None, min_length=1, max_length=255)
+    method: PaymentMethod | None = None
+    title: OptName = None
     description: str | None = None
-    installments: int | None = Field(None, ge=1, le=36)
-    down_payment_percent: float | None = Field(None, ge=0, le=100)
+    installments: int | None = Field(default=None, ge=1, le=36)
+    down_payment_percent: float | None = Field(default=None, ge=0, le=100)
     due_date: date | None = None
     active: bool | None = None
 
 
-class PaymentTermRead(OfficialRead):
+class PaymentTermOut(OfficialOut):
     id: int
     program_id: int
     specialty_id: int | None
     fee_id: int | None
-    method: str
+    method: PaymentMethod
     title: str
     description: str
     installments: int
     down_payment_percent: float | None
     due_date: date | None
+    active: bool
+    created_at: datetime
 
 
-class OfficialInfo(BaseModel):
+# --- Official information of a formation (what candidates and the agent consult) ----------------------------------------
+class OfficialInfoOut(BaseModel):
     program_id: int
     program_name: str
     institution: Institution
-    as_of: date
-    fees: list[FeeRead]
-    payment_terms: list[PaymentTermRead]
-    admission_conditions: list[AdmissionConditionRead]
-    complete: dict[str, bool]
+    as_of: date  # the day the validity periods were checked against
+    fees: list[FeeOut]
+    payment_terms: list[PaymentTermOut]
+    admission_conditions: list[AdmissionConditionOut]
+    complete: dict[str, bool]  # False = nothing official is published for this topic: refer to a human advisor

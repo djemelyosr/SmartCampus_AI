@@ -1,8 +1,8 @@
 import enum
-from datetime import date, datetime
+from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import false as sa_false, true as sa_true, Boolean, JSON, DateTime, Enum, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.config import settings
@@ -16,6 +16,14 @@ class Role(str, enum.Enum):
     interviewer = "interviewer"
     direction = "direction"
     admin = "admin"
+
+
+class ApprovalStatus(str, enum.Enum):
+    """Access request of an account. Candidates are approved at once; a team role must be granted by an administrator."""
+
+    pending = "pending"  # waiting for an administrator: the account cannot sign in
+    approved = "approved"
+    rejected = "rejected"
 
 
 class Institution(str, enum.Enum):
@@ -40,23 +48,8 @@ class PreRegStatus(str, enum.Enum):
     abandoned = "abandoned"
 
 
-class PublicationStatus(str, enum.Enum):
-    draft = "draft"
-    published = "published"
-    archived = "archived"
-
-
-class GuestStatus(str, enum.Enum):
-    active = "active"
-    claimed = "claimed"  # attached to a candidate account
-    expired = "expired"
-
-
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-
-# --------------------------------------------------------------------------- accounts
 
 
 class User(Base, TimestampMixin):
@@ -66,7 +59,22 @@ class User(Base, TimestampMixin):
     full_name: Mapped[str] = mapped_column(String(255), default="")
     hashed_password: Mapped[str] = mapped_column(String(255))
     role: Mapped[Role] = mapped_column(Enum(Role), default=Role.candidate)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=sa_true())
+    # Access request: an account that asked for a team role stays `candidate` (no privilege) and `pending` until an
+    # administrator approves it. Accounts created by an administrator or by the seed are approved.
+    requested_role: Mapped[Role | None] = mapped_column(Enum(Role, native_enum=False, length=20))
+    approval_status: Mapped[ApprovalStatus] = mapped_column(
+        Enum(ApprovalStatus, native_enum=False, length=16), default=ApprovalStatus.approved, server_default="approved", index=True
+    )
+    reviewed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_note: Mapped[str | None] = mapped_column(String(500))
+    # Account state of an approved account: active | inactive (is_active False: switched off, reactivable) | blocked
+    # (is_blocked True: refused with a recorded reason; is_active is False as well). See /admin/users/{id}/status.
+    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false())
+    blocked_reason: Mapped[str | None] = mapped_column(String(500))
+    blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    blocked_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     profile: Mapped["CandidateProfile | None"] = relationship(back_populates="user", uselist=False)
 
 
@@ -84,9 +92,6 @@ class CandidateProfile(Base, TimestampMixin):
     user: Mapped[User] = relationship(back_populates="profile")
 
 
-# --------------------------------------------------------------------------- academic catalogue
-
-
 class Program(Base):
     __tablename__ = "programs"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -98,97 +103,16 @@ class Program(Base):
     duration_years: Mapped[int | None] = mapped_column(Integer)
     career_outcomes: Mapped[list] = mapped_column(JSON, default=list)
     active: Mapped[bool] = mapped_column(default=True)
-
-
-class Specialty(Base):
-    __tablename__ = "specialties"
-    __table_args__ = (UniqueConstraint("program_id", "name"),)
-    id: Mapped[int] = mapped_column(primary_key=True)
-    program_id: Mapped[int] = mapped_column(ForeignKey("programs.id"), index=True)
-    name: Mapped[str] = mapped_column(String(255))
-    description: Mapped[str] = mapped_column(Text, default="")
-    active: Mapped[bool] = mapped_column(default=True)
-
-
-class Curriculum(Base):
-    """Teaching programme of a formation (optionally of one specialty), for an academic year."""
-
-    __tablename__ = "curricula"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    program_id: Mapped[int] = mapped_column(ForeignKey("programs.id"), index=True)
-    specialty_id: Mapped[int | None] = mapped_column(ForeignKey("specialties.id"), index=True)
-    name: Mapped[str] = mapped_column(String(255))
-    academic_year: Mapped[str | None] = mapped_column(String(9))  # 2026-2027
-    description: Mapped[str] = mapped_column(Text, default="")
-    active: Mapped[bool] = mapped_column(default=True)
-
-
-class Subject(Base):
-    __tablename__ = "subjects"
-    __table_args__ = (UniqueConstraint("curriculum_id", "code"),)
-    id: Mapped[int] = mapped_column(primary_key=True)
-    curriculum_id: Mapped[int] = mapped_column(ForeignKey("curricula.id"), index=True)
-    code: Mapped[str | None] = mapped_column(String(32))
-    name: Mapped[str] = mapped_column(String(255))
-    semester: Mapped[int | None] = mapped_column(Integer)
-    credits: Mapped[float | None] = mapped_column(Float)
-    coefficient: Mapped[float | None] = mapped_column(Float)
-    hours: Mapped[float | None] = mapped_column(Float)
-    description: Mapped[str] = mapped_column(Text, default="")
-    active: Mapped[bool] = mapped_column(default=True)
-
-
-class OfficialMixin:
-    """Official information: only `published`, `active` AND valid today is shown to candidates and the AI agent."""
-
-    status: Mapped[PublicationStatus] = mapped_column(Enum(PublicationStatus), default=PublicationStatus.draft)
-    valid_from: Mapped[date | None] = mapped_column(Date)
-    valid_until: Mapped[date | None] = mapped_column(Date)
-    academic_year: Mapped[str | None] = mapped_column(String(9))
-    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    active: Mapped[bool] = mapped_column(default=True)
-
-
-class AdmissionCondition(Base, OfficialMixin):
-    __tablename__ = "admission_conditions"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    program_id: Mapped[int] = mapped_column(ForeignKey("programs.id"), index=True)
-    specialty_id: Mapped[int | None] = mapped_column(ForeignKey("specialties.id"))
-    kind: Mapped[str] = mapped_column(String(16))  # diploma | average | document | exam | language | age | other
-    title: Mapped[str] = mapped_column(String(255))
-    description: Mapped[str] = mapped_column(Text, default="")
-    required: Mapped[bool] = mapped_column(default=True)
-    threshold: Mapped[float | None] = mapped_column(Float)
-
-
-class Fee(Base, OfficialMixin):
-    __tablename__ = "fees"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    program_id: Mapped[int] = mapped_column(ForeignKey("programs.id"), index=True)
-    specialty_id: Mapped[int | None] = mapped_column(ForeignKey("specialties.id"))
-    label: Mapped[str] = mapped_column(String(255))
-    amount: Mapped[float] = mapped_column(Float)
-    currency: Mapped[str] = mapped_column(String(3), default="TND")
-    period: Mapped[str] = mapped_column(String(16))  # annual | semester | one_time
-    description: Mapped[str] = mapped_column(Text, default="")
-
-
-class PaymentTerm(Base, OfficialMixin):
-    __tablename__ = "payment_terms"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    program_id: Mapped[int] = mapped_column(ForeignKey("programs.id"), index=True)
-    specialty_id: Mapped[int | None] = mapped_column(ForeignKey("specialties.id"))
-    fee_id: Mapped[int | None] = mapped_column(ForeignKey("fees.id"))
-    method: Mapped[str] = mapped_column(String(16))  # bank_transfer | cash | cheque | card | online | other
-    title: Mapped[str] = mapped_column(String(255))
-    description: Mapped[str] = mapped_column(Text, default="")
-    installments: Mapped[int] = mapped_column(Integer, default=1)
-    down_payment_percent: Mapped[float | None] = mapped_column(Float)
-    due_date: Mapped[date | None] = mapped_column(Date)
+    # Academic catalogue (app/models/catalog.py): removed together with the formation.
+    specialties: Mapped[list["Specialty"]] = relationship(back_populates="program", cascade="all")
+    curricula: Mapped[list["Curriculum"]] = relationship(back_populates="program", cascade="all")
+    admission_conditions: Mapped[list["AdmissionCondition"]] = relationship(back_populates="program", cascade="all")
+    fees: Mapped[list["Fee"]] = relationship(back_populates="program", cascade="all")
+    payment_terms: Mapped[list["PaymentTerm"]] = relationship(back_populates="program", cascade="all")
 
 
 class DocumentChunk(Base):
-    """RAG corpus chunk (official IIT/ISB sources). PostgreSQL + pgvector only."""
+    """RAG corpus chunk (official IIT/ISB sources)."""
 
     __tablename__ = "document_chunks"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -199,39 +123,13 @@ class DocumentChunk(Base):
     embedding = mapped_column(Vector(settings.embedding_dim))
 
 
-# --------------------------------------------------------------------------- conversations
-
-
-class GuestSession(Base, TimestampMixin):
-    """Temporary visitor session, created when a visitor starts chatting without an account.
-
-    The client holds a secret token `<id>.<secret>`; only a SHA-256 hash of the secret is stored, so a database
-    leak does not expose usable tokens. Holding the token is the proof that the session belongs to someone.
-    """
-
-    __tablename__ = "guest_sessions"
-    id: Mapped[str] = mapped_column(String(32), primary_key=True)  # public identifier (uuid4 hex)
-    secret_hash: Mapped[str] = mapped_column(String(64))
-    status: Mapped[GuestStatus] = mapped_column(Enum(GuestStatus), default=GuestStatus.active, index=True)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    message_count: Mapped[int] = mapped_column(Integer, default=0)
-    client_hash: Mapped[str | None] = mapped_column(String(64), index=True)  # salted hash of the IP, for rate limits
-    language: Mapped[str | None] = mapped_column(String(16))
-    claimed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
-    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    claim_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
 class Conversation(Base, TimestampMixin):
     __tablename__ = "conversations"
     id: Mapped[int] = mapped_column(primary_key=True)
-    # Exactly one owner: a candidate account, or a visitor session until it is claimed.
-    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
-    guest_session_id: Mapped[str | None] = mapped_column(ForeignKey("guest_sessions.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     language: Mapped[str | None] = mapped_column(String(16))  # fr | tn | arabizi
     state: Mapped[dict] = mapped_column(JSON, default=dict)  # agent memory / graph state
-    messages: Mapped[list["Message"]] = relationship(back_populates="conversation", order_by="Message.id", cascade="all, delete-orphan")
+    messages: Mapped[list["Message"]] = relationship(back_populates="conversation", order_by="Message.id")
 
 
 class Message(Base, TimestampMixin):
@@ -242,11 +140,21 @@ class Message(Base, TimestampMixin):
     content: Mapped[str] = mapped_column(Text)
     modality: Mapped[str] = mapped_column(String(8), default="text")  # text | audio
     audio_path: Mapped[str | None] = mapped_column(String(512))
-    meta: Mapped[dict] = mapped_column(JSON, default=dict)  # sources, intent, language, handoff...
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)  # sources, intent, language...
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
 
 
-# --------------------------------------------------------------------------- application journey
+class SessionMemory(Base):
+    """Temporary working memory of a conversation (redacted, bounded, expiring). See app/services/session_memory.py."""
+
+    __tablename__ = "session_memories"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), unique=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class PreRegistration(Base, TimestampMixin):

@@ -1,29 +1,30 @@
+import sqlite3
 from collections.abc import Iterator
-from functools import cache
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 from app.db.base import Base
 
-# The database is PostgreSQL (driver psycopg 3), configured by DATABASE_URL.
+
+@event.listens_for(Engine, "connect")
+def _sqlite_translate(dbapi_conn, _record) -> None:
+    """SQLite (unit tests only) has no translate(): register it so the accent-insensitive catalogue search runs there too."""
+    if isinstance(dbapi_conn, sqlite3.Connection):
+        dbapi_conn.create_function(
+            "translate", 3, lambda s, a, b: None if s is None else str(s).translate(str.maketrans(a, b)), deterministic=True
+        )
+
+
+# PostgreSQL only: the application no longer ships a file-based (SQLite) database.
 engine = create_engine(settings.database_url, pool_pre_ping=True)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
-# Tables that need the pgvector extension (RAG index). Skipped when the extension is not installed on the server.
-VECTOR_TABLES = {"document_chunks"}
-
-
-class OutdatedSchemaError(RuntimeError):
-    pass
-
-
-class DatabaseUnavailableError(RuntimeError):
-    pass
+# Tables that need the pgvector extension (RAG index).
+POSTGRES_ONLY_TABLES = {"document_chunks"}
 
 
 def get_db() -> Iterator[Session]:
@@ -31,81 +32,68 @@ def get_db() -> Iterator[Session]:
         yield db
 
 
-@cache
-def _vector_available(url: str) -> bool:
-    with create_engine(url).connect() as conn:
-        return conn.execute(text("SELECT 1 FROM pg_available_extensions WHERE name = 'vector'")).first() is not None
+def create_tables(bind: Engine) -> None:
+    """Create the schema on PostgreSQL (with pgvector when available).
 
-
-def vector_available(bind: Engine) -> bool:
-    """True when the PostgreSQL server can provide the pgvector extension."""
-    return _vector_available(bind.url.render_as_string(hide_password=False))
-
-
-def _tables_for(bind: Engine) -> list:
+    The in-memory SQLite branch only serves the unit tests (no persisted database).
+    """
     import app.models  # noqa: F401  (register tables)
 
-    if vector_available(bind):
-        return list(Base.metadata.tables.values())
-    return [t for n, t in Base.metadata.tables.items() if n not in VECTOR_TABLES]
-
-
-def schema_problems(bind: Engine) -> list[str]:
-    """Existing tables that miss columns of the current models (database created by an older version)."""
-    insp = inspect(bind)
-    existing = set(insp.get_table_names())
-    problems = []
-    for t in _tables_for(bind):
-        if t.name in existing:
-            have = {c["name"] for c in insp.get_columns(t.name)}
-            missing = [c.name for c in t.columns if c.name not in have]
-            if missing:
-                problems.append(f"{t.name}: {', '.join(missing)}")
-    return problems
-
-
-def create_tables(bind: Engine) -> None:
-    """Create the schema; enable pgvector first when the server provides it."""
-    if vector_available(bind):
+    if bind.dialect.name == "sqlite":
+        tables = [t for n, t in Base.metadata.tables.items() if n not in POSTGRES_ONLY_TABLES]
+        Base.metadata.create_all(bind, tables=tables)
+        return
+    try:
         with bind.begin() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-    Base.metadata.create_all(bind, tables=_tables_for(bind))
+    except Exception:
+        # PostgreSQL without pgvector (e.g. postgres:16-alpine): create everything except the vector tables.
+        tables = [t for n, t in Base.metadata.tables.items() if n not in POSTGRES_ONLY_TABLES]
+        Base.metadata.create_all(bind, tables=tables)
+        _migrate(bind)
+        return
+    Base.metadata.create_all(bind)
+    _migrate(bind)
 
 
-def drop_tables(bind: Engine) -> None:
-    Base.metadata.drop_all(bind, tables=[t for t in _tables_for(bind) if t.name in inspect(bind).get_table_names()])
-
-
-def check_connection(bind: Engine = engine) -> None:
-    """Fail early with a readable message when PostgreSQL cannot be reached."""
-    try:
-        with bind.connect() as conn:
-            conn.execute(text("SELECT 1"))
-    except OperationalError as e:
-        where = bind.url.render_as_string(hide_password=True)
-        raise DatabaseUnavailableError(
-            f"Impossible de se connecter à PostgreSQL ({where}). Vérifiez que le serveur est démarré, que la base et "
-            "l'utilisateur existent, et la valeur de DATABASE_URL dans backend/.env (voir GUIDE_DEMARRAGE.md). "
-            f"Détail : {str(e.orig).strip().splitlines()[0] if e.orig else e}"
-        ) from None
+def _migrate(bind: Engine) -> None:
+    """Tiny additive migrations for databases created before a column existed (no Alembic yet)."""
+    if bind.dialect.name != "postgresql":
+        return
+    with bind.begin() as conn:
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE"))
+        # Access requests: accounts that existed before are approved (they could already sign in).
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS requested_role VARCHAR(20)"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS approval_status VARCHAR(16) NOT NULL DEFAULT 'approved'"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS reviewed_by_id INTEGER REFERENCES users(id)"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS review_note VARCHAR(500)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_approval_status ON users (approval_status)"))
+        # Blocked accounts (distinct from inactive ones): reason, date and administrator are kept.
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_reason VARCHAR(500)"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_at TIMESTAMPTZ"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_by_id INTEGER REFERENCES users(id)"))
+        # Official information (publication status + validity period). Items entered before this existed were already
+        # visible to candidates, so they are backfilled as published; new items start as drafts (ORM default).
+        for table in ("fees", "admission_conditions"):
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS status VARCHAR(16) NOT NULL DEFAULT 'published'"))
+            conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN status DROP DEFAULT"))
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS valid_from DATE"))
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS valid_until DATE"))
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS academic_year VARCHAR(9)"))
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ"))
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS published_by_id INTEGER REFERENCES users(id)"))
+            conn.execute(text(f"UPDATE {table} SET published_at = created_at WHERE status = 'published' AND published_at IS NULL"))
+            conn.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{table}_status ON {table} (status)"))
 
 
 def init_db() -> None:
-    """Startup in dev: check the schema, create missing tables, add the base catalogue (and demo data if enabled)."""
-    from app.seed import seed_programs
+    from app.seed import seed_programs, seed_team_accounts
+    from app.seed_catalog import seed_catalog
 
-    check_connection()
-    problems = schema_problems(engine)
-    if problems:
-        raise OutdatedSchemaError(
-            "La base de données a été créée par une ancienne version (colonnes manquantes : "
-            + "; ".join(problems)
-            + "). Réinitialisez-la avec :  python -m app.cli reset-db --yes --demo"
-        )
     create_tables(engine)
     with SessionLocal() as db:
         seed_programs(db)
-        if settings.seed_demo_data:
-            from app.demo_data import seed_demo
-
-            seed_demo(db)
+        seed_catalog(db)
+        seed_team_accounts(db)
